@@ -173,60 +173,254 @@ const HISTORY_1M_API =
   'https://draw.ar-lottery01.com/WinGo/WinGo_1M/GetHistoryIssuePage.json';
 
 
-// ======================================
-// CREATE HISTORY ROW SAFELY
-// ======================================
+// =====================================================
+// STORAGE KEY
+// =====================================================
 
-function createHistoryRow(item) {
+const STORAGE_30S = "WINGO_HISTORY_30S";
+const STORAGE_1M  = "WINGO_HISTORY_1M";
 
-  const num = Number.parseInt(item.number, 10);
 
-  // Invalid number হলে row বাদ
-  if (!Number.isInteger(num) || num < 0 || num > 9) {
+// =====================================================
+// LOAD SAVED DATA
+// =====================================================
+
+function getSavedHistory(storageKey) {
+
+  try {
+
+    const saved =
+      localStorage.getItem(storageKey);
+
+    if (!saved) {
+      return [];
+    }
+
+    const parsed = JSON.parse(saved);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed;
+
+  } catch (error) {
+
+    console.error(
+      "Storage Read Error:",
+      error
+    );
+
+    return [];
+  }
+}
+
+
+// =====================================================
+// SAVE DATA
+// =====================================================
+
+function saveHistory(storageKey, history) {
+
+  try {
+
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(history)
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Storage Save Error:",
+      error
+    );
+  }
+}
+
+
+// =====================================================
+// CREATE CLEAN DATA
+// =====================================================
+
+function cleanItem(item) {
+
+  const num =
+    Number.parseInt(item.number, 10);
+
+  if (
+    !Number.isInteger(num) ||
+    num < 0 ||
+    num > 9
+  ) {
     return null;
   }
 
-  const period = String(item.issueNumber ?? "");
+  const period =
+    String(item.issueNumber ?? "").trim();
 
-  const size = num >= 5 ? "Big" : "Small";
+  if (!period) {
+    return null;
+  }
+
+
+  const size =
+    num >= 5 ? "Big" : "Small";
+
 
   let color;
 
-  if ([1, 3, 7, 9].includes(num)) {
+  if (
+    [1, 3, 7, 9].includes(num)
+  ) {
+
     color = "green";
-  }
-  else if ([2, 4, 6, 8].includes(num)) {
+
+  } else if (
+    [2, 4, 6, 8].includes(num)
+  ) {
+
     color = "red";
-  }
-  else {
+
+  } else {
+
     color = "violet";
   }
 
 
-  const row = document.createElement("tr");
+  return {
+    period: period,
+    number: num,
+    size: size,
+    color: color
+  };
+}
+
+
+// =====================================================
+// ADD NEW DATA WITHOUT DUPLICATE
+// =====================================================
+
+function addNewData(storageKey, apiList) {
+
+  // আগের সব data
+  let history =
+    getSavedHistory(storageKey);
+
+
+  // শুধু valid data
+  const newItems =
+    apiList
+      .map(cleanItem)
+      .filter(item => item !== null);
+
+
+  // Existing Period set
+  const existingPeriods =
+    new Set(
+      history.map(item => item.period)
+    );
+
+
+  let added = 0;
+
+
+  // নতুন data যোগ
+  newItems.forEach(item => {
+
+    // একই Period আগে থাকলে ignore
+    if (
+      existingPeriods.has(item.period)
+    ) {
+      return;
+    }
+
+
+    history.push(item);
+
+    existingPeriods.add(item.period);
+
+    added++;
+  });
+
+
+  // নতুন থেকে পুরোনো
+  history.sort((a, b) => {
+
+    if (a.period < b.period) {
+      return 1;
+    }
+
+    if (a.period > b.period) {
+      return -1;
+    }
+
+    return 0;
+  });
+
+
+  // Save
+  if (added > 0) {
+
+    saveHistory(
+      storageKey,
+      history
+    );
+  }
+
+
+  return history;
+}
+
+
+// =====================================================
+// CREATE HISTORY ROW
+// =====================================================
+
+function createHistoryRow(item) {
+
+  const row =
+    document.createElement("tr");
 
 
   // Period
-  const periodCell = document.createElement("td");
-  periodCell.textContent = period;
+  const periodCell =
+    document.createElement("td");
+
+  periodCell.textContent =
+    item.period;
 
 
   // Number
-  const numberCell = document.createElement("td");
-  numberCell.className = "num " + color;
-  numberCell.textContent = num;
+  const numberCell =
+    document.createElement("td");
+
+  numberCell.className =
+    "num " + item.color;
+
+  numberCell.textContent =
+    item.number;
 
 
   // Big / Small
-  const sizeCell = document.createElement("td");
-  sizeCell.textContent = size;
+  const sizeCell =
+    document.createElement("td");
+
+  sizeCell.textContent =
+    item.size;
 
 
   // Color
-  const colorCell = document.createElement("td");
+  const colorCell =
+    document.createElement("td");
 
-  const dot = document.createElement("span");
-  dot.className = "dot " + color;
+
+  const dot =
+    document.createElement("span");
+
+  dot.className =
+    "dot " + item.color;
+
 
   colorCell.appendChild(dot);
 
@@ -241,133 +435,200 @@ function createHistoryRow(item) {
 }
 
 
-// ======================================
-// LOAD HISTORY
-// ======================================
+// =====================================================
+// DISPLAY ALL SAVED HISTORY
+// =====================================================
 
-async function loadHistory(apiURL, tbodyID, label) {
+function displayHistory(
+  history,
+  tbodyID,
+  label
+) {
 
-  const tbody = document.getElementById(tbodyID);
+  const tbody =
+    document.getElementById(tbodyID);
+
+
+  tbody.replaceChildren();
+
+
+  if (!history.length) {
+
+    const row =
+      document.createElement("tr");
+
+
+    const cell =
+      document.createElement("td");
+
+    cell.colSpan = 4;
+
+    cell.className =
+      "loading";
+
+    cell.textContent =
+      "No " + label + " data yet";
+
+
+    row.appendChild(cell);
+
+    tbody.appendChild(row);
+
+    return;
+  }
+
+
+  const fragment =
+    document.createDocumentFragment();
+
+
+  history.forEach(item => {
+
+    const row =
+      createHistoryRow(item);
+
+    fragment.appendChild(row);
+
+  });
+
+
+  tbody.appendChild(fragment);
+}
+
+
+// =====================================================
+// LOAD API + SAVE NEW DATA
+// =====================================================
+
+async function loadHistory(
+  apiURL,
+  storageKey,
+  tbodyID,
+  label
+) {
 
   try {
 
-    const response = await fetch(
-      apiURL + "?ts=" + Date.now(),
-      {
-        cache: "no-store"
-      }
-    );
+    const response =
+      await fetch(
+        apiURL + "?ts=" + Date.now(),
+        {
+          cache: "no-store"
+        }
+      );
 
 
     if (!response.ok) {
-      throw new Error("Network error");
+      throw new Error(
+        "Network error"
+      );
     }
 
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
 
     if (
       !data.data ||
       !Array.isArray(data.data.list)
     ) {
-      throw new Error("Invalid API response");
+
+      throw new Error(
+        "Invalid API response"
+      );
     }
 
 
-    const list = data.data.list.slice(0, 10);
+    // API থেকে যত data এসেছে
+    const apiList =
+      data.data.list;
 
 
-    const fragment =
-      document.createDocumentFragment();
+    // নতুন data save + duplicate বাদ
+    const allHistory =
+      addNewData(
+        storageKey,
+        apiList
+      );
 
 
-    list.forEach(item => {
-
-      const row = createHistoryRow(item);
-
-      if (row) {
-        fragment.appendChild(row);
-      }
-
-    });
+    // সব saved history দেখাও
+    displayHistory(
+      allHistory,
+      tbodyID,
+      label
+    );
 
 
-    tbody.replaceChildren(fragment);
-
-
-    // যদি কোনো valid data না থাকে
-    if (!tbody.children.length) {
-
-      const row = document.createElement("tr");
-
-      const cell = document.createElement("td");
-
-      cell.colSpan = 4;
-      cell.className = "loading";
-      cell.textContent =
-        "No valid " + label + " data found";
-
-      row.appendChild(cell);
-
-      tbody.appendChild(row);
-    }
+    console.log(
+      label +
+      " total saved:",
+      allHistory.length
+    );
 
 
   } catch (error) {
 
-    const row = document.createElement("tr");
-
-    const cell = document.createElement("td");
-
-    cell.colSpan = 4;
-    cell.className = "error";
-    cell.textContent =
-      "Failed to load " + label + " history";
-
-    row.appendChild(cell);
-
-    tbody.replaceChildren(row);
-
     console.error(
-      label + " History Error:",
+      label +
+      " History Error:",
       error
     );
+
+
+    // API fail হলেও আগের saved data দেখাবে
+    const savedHistory =
+      getSavedHistory(storageKey);
+
+
+    displayHistory(
+      savedHistory,
+      tbodyID,
+      label
+    );
+
   }
 }
 
 
-// ======================================
+// =====================================================
 // INITIAL LOAD
-// ======================================
+// =====================================================
 
 loadHistory(
   HISTORY_30S_API,
+  STORAGE_30S,
   "history30s",
   "30S"
 );
 
+
 loadHistory(
   HISTORY_1M_API,
+  STORAGE_1M,
   "history1m",
   "1M"
 );
 
 
-// ======================================
-// AUTO REFRESH — EVERY 5 SECONDS
-// ======================================
+// =====================================================
+// AUTO CHECK — EVERY 5 SECONDS
+// =====================================================
 
 setInterval(() => {
 
   loadHistory(
     HISTORY_30S_API,
+    STORAGE_30S,
     "history30s",
     "30S"
   );
 
+
   loadHistory(
     HISTORY_1M_API,
+    STORAGE_1M,
     "history1m",
     "1M"
   );
